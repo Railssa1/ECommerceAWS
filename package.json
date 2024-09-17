@@ -11,17 +11,21 @@
     "cdk": "cdk"
   },
   "devDependencies": {
+    "@types/aws-lambda": "^8.10.145",
     "@types/jest": "^29.5.12",
     "@types/node": "22.5.4",
+    "@types/uuid": "^10.0.0",
+    "aws-cdk": "2.158.0",
+    "aws-sdk": "^2.1691.0",
     "jest": "^29.7.0",
     "ts-jest": "^29.2.5",
-    "aws-cdk": "2.158.0",
     "ts-node": "^10.9.2",
     "typescript": "~5.6.2"
   },
   "dependencies": {
     "aws-cdk-lib": "2.158.0",
     "constructs": "^10.0.0",
+    "e_commerce_aws": "file:",
     "source-map-support": "^0.5.21"
   }
 }
