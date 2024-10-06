@@ -6,7 +6,8 @@ import { Construct } from "constructs";
 
 interface ECommerceApiStackProps extends cdk.StackProps {
     productsFetchHandler: lambdaNodeJS.NodejsFunction,
-    productsAdminHandler: lambdaNodeJS.NodejsFunction
+    productsAdminHandler: lambdaNodeJS.NodejsFunction,
+    ordersHandler: lambdaNodeJS.NodejsFunction
 }
 
 export class ECommerceApiStack extends cdk.Stack {
@@ -35,6 +36,11 @@ export class ECommerceApiStack extends cdk.Stack {
             }
         });
 
+        this.createProductsService(props, api);
+        this.createOrdersService(props, api);
+    }
+
+    private createProductsService(props: ECommerceApiStackProps, api: apigateway.RestApi) {
         const productsFetchIntegration = new apigateway.LambdaIntegration(props.productsFetchHandler);
         const productsAdminIntegration = new apigateway.LambdaIntegration(props.productsAdminHandler);
 
@@ -55,4 +61,35 @@ export class ECommerceApiStack extends cdk.Stack {
         // [DELETE] "/products/{id}"
         productsIdResource.addMethod("DELETE", productsAdminIntegration);
     }
+
+    private createOrdersService(props: ECommerceApiStackProps, api: apigateway.RestApi) {
+        const ordersIntegration = new apigateway.LambdaIntegration(props.ordersHandler);
+
+        // resource - /orders
+        const ordersResource = api.root.addResource("orders");
+
+        // GET /orders
+        // GET /orders?email=raissa
+        // GET /orders?email=raissa&orderId=123
+        ordersResource.addMethod("GET", ordersIntegration);
+
+        // DELETE /orders?email=raissa&orderId=123
+        const orderDeletionValidator = new apigateway.RequestValidator(this, "OrderDeletionValidator", {
+            restApi: api,
+            requestValidatorName: "OrderDeletionValidator",
+            validateRequestParameters: true
+        });
+
+        ordersResource.addMethod("DELETE", ordersIntegration, {
+            requestParameters: {
+                'method.request.querystring.email': true,
+                'method.request.querystring.orderId': true,
+            },
+            requestValidator: orderDeletionValidator
+        });
+
+        // POST /orders
+        ordersResource.addMethod("POST", ordersIntegration);
+    }
+
 }
