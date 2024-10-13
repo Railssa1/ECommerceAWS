@@ -3,10 +3,15 @@ import * as lambdaNodeJS from "aws-cdk-lib/aws-lambda-nodejs";
 import * as cdk from "aws-cdk-lib";
 import * as dynamodb from "aws-cdk-lib/aws-dynamodb";
 import * as ssm from "aws-cdk-lib/aws-ssm";
+import * as sns from "aws-cdk-lib/aws-sns";
+import * as subs from "aws-cdk-lib/aws-sns-subscriptions";
+import * as iam from "aws-cdk-lib/aws-iam";
+
 import { Construct } from "constructs";
 
 interface OrdersAppStackProps extends cdk.StackProps {
-    productsDdb: dynamodb.Table;
+    productsDdb: dynamodb.Table,
+    eventsDdb: dynamodb.Table
 }
 
 export class OrdersAppStack extends cdk.Stack {
@@ -28,22 +33,35 @@ export class OrdersAppStack extends cdk.Stack {
             readCapacity: 1,
             writeCapacity: 1,
             billingMode: dynamodb.BillingMode.PROVISIONED,
-         });
+        });
 
 
-         // Orders Layer
-         const ordersLayersArn =  ssm.StringParameter.valueForStringParameter(this, "OrdersLayerVersionArn");
-         const ordersLayer = lambda.LayerVersion.fromLayerVersionArn(this, "OrdersLayerVersionArn", ordersLayersArn);
+        // Orders Layer
+        const ordersLayersArn = ssm.StringParameter.valueForStringParameter(this, "OrdersLayerVersionArn");
+        const ordersLayer = lambda.LayerVersion.fromLayerVersionArn(this, "OrdersLayerVersionArn", ordersLayersArn);
 
-          // Orders API Layer
-          const ordersApiLayersArn =  ssm.StringParameter.valueForStringParameter(this, "OrdersApiLayerVersionArn");
-          const ordersApiLayer = lambda.LayerVersion.fromLayerVersionArn(this, "OrdersApiLayerVersionArn", ordersApiLayersArn);
+        // Orders API Layer
+        const ordersApiLayersArn = ssm.StringParameter.valueForStringParameter(this, "OrdersApiLayerVersionArn");
+        const ordersApiLayer = lambda.LayerVersion.fromLayerVersionArn(this, "OrdersApiLayerVersionArn", ordersApiLayersArn);
 
-         // Products Layer
-         const productsLayerArn = ssm.StringParameter.valueForStringParameter(this, "ProductsLayerVersionArn");
-         const productsLayer = lambda.LayerVersion.fromLayerVersionArn(this, "ProductsLayerVersionArn", productsLayerArn);
+        // Order events Layer
+        const orderEventsLayerArn = ssm.StringParameter.valueForStringParameter(this, "OrderEventsLayerVersionArn");
+        const orderEventsLayer = lambda.LayerVersion.fromLayerVersionArn(this, "OrderEventsLayerVersionArn", orderEventsLayerArn);
 
-         this.ordersHandler = new lambdaNodeJS.NodejsFunction(this, "OrdersFunction", {
+        // Order events repository Layer
+        const orderEventsRepositoryLayerArn = ssm.StringParameter.valueForStringParameter(this, "OrderEventsRepositoryLayerVersionArn");
+        const orderEventRepositoryLayer = lambda.LayerVersion.fromLayerVersionArn(this, "OrderEventsRepositoryLayerVersionArn", orderEventsRepositoryLayerArn);
+
+        // Products Layer
+        const productsLayerArn = ssm.StringParameter.valueForStringParameter(this, "ProductsLayerVersionArn");
+        const productsLayer = lambda.LayerVersion.fromLayerVersionArn(this, "ProductsLayerVersionArn", productsLayerArn);
+
+        const ordersTopic = new sns.Topic(this, "OrderEventsTopic", {
+            displayName: "Order events topic",
+            topicName: "order-events"
+        });
+
+        this.ordersHandler = new lambdaNodeJS.NodejsFunction(this, "OrdersFunction", {
             runtime: lambda.Runtime.NODEJS_20_X,
             functionName: "OrdersFunction",
             entry: "lambda/orders/ordersFunction.ts",
@@ -56,14 +74,50 @@ export class OrdersAppStack extends cdk.Stack {
             },
             environment: {
                 PRODUCTS_DDB: props.productsDdb.tableName,
-                ORDERS_DDB: ordersDdb.tableName
+                ORDERS_DDB: ordersDdb.tableName,
+                ORDER_EVENTS_TOPIC_ARN: ordersTopic.topicArn,
             },
-            layers: [productsLayer, ordersLayer, ordersApiLayer],
+            layers: [productsLayer, ordersLayer, ordersApiLayer, orderEventsLayer],
             tracing: lambda.Tracing.ACTIVE,
             insightsVersion: lambda.LambdaInsightsVersion.VERSION_1_0_119_0
-         });
+        });
 
         ordersDdb.grantReadWriteData(this.ordersHandler);
         props.productsDdb.grantReadData(this.ordersHandler);
+        ordersTopic.grantPublish(this.ordersHandler);
+
+        const orderEventsHandler = new lambdaNodeJS.NodejsFunction(this, "OrderEventsFunction", {
+            runtime: lambda.Runtime.NODEJS_20_X,
+            functionName: "OrderEventsFunction",
+            entry: "lambda/orders/orderEventsFunction.ts",
+            handler: "handler",
+            memorySize: 512,
+            timeout: cdk.Duration.seconds(2),
+            bundling: {
+                minify: true,
+                sourceMap: false
+            },
+            environment: {
+                EVENTS_DDB: props.eventsDdb.tableName
+            },
+            layers: [orderEventsLayer],
+            tracing: lambda.Tracing.ACTIVE,
+            insightsVersion: lambda.LambdaInsightsVersion.VERSION_1_0_119_0
+        });
+
+        ordersTopic.addSubscription(new subs.LambdaSubscription(orderEventsHandler));
+
+        const eventdDdbPolicy = new iam.PolicyStatement({
+            effect: iam.Effect.ALLOW,
+            actions: ["dynamodb:PutItem"],
+            resources: [props.eventsDdb.tableArn],
+            conditions: {
+                ['ForAllValues:StringLike']: {
+                    'dynamodb:LeadingKeys': ["#order_*"]
+                }
+            }
+        });
+
+        orderEventsHandler.addToRolePolicy(eventdDdbPolicy);
     }
 }
