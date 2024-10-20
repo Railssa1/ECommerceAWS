@@ -119,9 +119,11 @@ export async function handler(event: APIGatewayProxyEvent, context: Context): Pr
 
 function sendOrderEvent(order: Order, eventType: OrderEventType, lambdaRequestId: string) {
     const productCodes: string[] = [];
-    order.products.forEach((product) => {
-        productCodes.push(product.code);
-    });
+    if(order.products){
+        order.products.forEach((product) => {
+            productCodes.push(product.code);
+        });
+    }
 
     const orderEvent: OrderEvent = {
         email: order.pk!,
@@ -152,12 +154,14 @@ function sendOrderEvent(order: Order, eventType: OrderEventType, lambdaRequestId
 function convertToOrderResponse(order: Order): OrderResponse {
     const orderProducts: OrderProductResponse[] = [];
 
-    order.products.forEach((product) => {
-        orderProducts.push({
-            code: product.code,
-            price: product.price
+    if(order.products){
+        order.products.forEach((product) => {
+            orderProducts.push({
+                code: product.code,
+                price: product.price
+            });
         });
-    });
+    }
 
     const orderResponse: OrderResponse = {
         email: order.pk,
