@@ -29,7 +29,8 @@ export class ECommerceApiGateway extends cdk.Stack {
                         caller: true,
                         user: true
                     })
-                }
+                },
+                cloudWatchRole: true
             })
         
         const productsFetchIntegration = new apigateway.LambdaIntegration(props.productsFetchHandler);
